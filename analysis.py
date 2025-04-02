@@ -273,7 +273,6 @@ def visualize_frequency(freq_results):
 def visualize_features(feature_results):
     """
     Plots each feature as a separate subplot, arranged in a grid.
-    The x-axis label "Board Size" is removed, but numeric ticks remain.
     """
     # Use consistent ordering of board sizes
     board_sizes = sorted(feature_results.keys())
