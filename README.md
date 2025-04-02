@@ -1,7 +1,6 @@
 Scalable Checkers Engine
 A scalable, adaptive checkers engine that extends the traditional 8×8 board to support different board sizes. This project combines classical game-playing algorithms such as minimax with alpha–beta pruning and iterative deepening, together with modern machine learning techniques using neural networks. The hybrid approach enables enhanced evaluation and strategic move selection on boards of various dimensions.
 ________________________________________
-Overview
 This project implements a checkers game engine designed to address the limitations of traditional 8×8 checkers by allowing flexible board sizes. The engine leverages:
 •	Classical AI Techniques: An enhanced minimax algorithm with alpha–beta pruning and iterative deepening.
 •	Neural Network Evaluation: A convolutional neural network (CNN) model with residual blocks to provide adaptive board evaluation.
@@ -9,7 +8,7 @@ This project implements a checkers game engine designed to address the limitatio
 •	Tournament Mode: Multiple opponent strategies and tournament logic to assess performance across different board sizes.
 The resulting engine demonstrates improved scalability, deeper search capabilities, and robust move selection by integrating handcrafted heuristics with modern ML-based evaluation.
 ________________________________________
-Features
+Features:
 •	Scalable Board Support: Play checkers on boards of varying sizes (e.g., 6×6, 8×8, 10×10, etc.).
 •	Adaptive Evaluation Function: Combines classical heuristics and neural network predictions using adaptive weighting.
 •	Efficient Search: Implements iterative deepening minimax with alpha–beta pruning, along with quiescence search to handle tactical positions.
