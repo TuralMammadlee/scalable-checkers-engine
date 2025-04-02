@@ -23,8 +23,6 @@ Installation
 git clone https://github.com/yourusername/scalable-checkers-engine.git
 cd scalable-checkers-engine
 2.	Create a Virtual Environment (Optional but Recommended):
-bash
-Copy
 python3 -m venv venv
 source venv/bin/activate   # On Windows: venv\Scripts\activate
 3.	Install Required Packages:
