@@ -105,7 +105,7 @@ class Board:
                 return captures
 
             if any_captures_exist:
-                return {}  # This piece can’t move if another capture exists.
+                return {}  # This piece can't move if another capture exists.
 
             moves = {}
             directions = []
@@ -126,47 +126,58 @@ class Board:
             print("Error in get_valid_moves:", e)
             return {}
 
-    def _get_captures(self, piece, row, col, skipped, captures, visited=None):
+    def _get_captures(self, piece, row, col, current_skipped, captures, visited=None):
         if visited is None:
-            visited = {(row, col)}
-        else:
-            visited.add((row, col))
+            visited = set() # Use set for faster lookups
+
+        # Prevent revisiting the *same square* within the *same jump sequence*
+        current_path_key = (row, col)
+        if current_path_key in visited:
+             return captures # Already visited this square in this path
+
+        visited.add(current_path_key)
+
         directions = []
         if piece.color == 'white' or piece.king:
             directions.append(1)
         if piece.color == 'black' or piece.king:
             directions.append(-1)
-        
+
+        found_further_jump = False # Track if any recursive call found moves
+
         for d in directions:
             for col_dir in [-1, 1]:
-                mid_row = row + d
-                mid_col = col + col_dir
-                end_row = row + 2 * d
-                end_col = col + 2 * col_dir
+                mid_row, mid_col = row + d, col + col_dir
+                end_row, end_col = row + 2 * d, col + 2 * col_dir
+
                 if self.in_bounds(mid_row, mid_col) and self.in_bounds(end_row, end_col):
                     mid_piece = self.get_piece(mid_row, mid_col)
                     end_cell = self.get_piece(end_row, end_col)
-                    if (mid_piece != 0 and mid_piece.color != piece.color and 
-                        mid_piece not in skipped and end_cell == 0 and (end_row, end_col) not in visited):
-                        new_skipped = skipped + [mid_piece]
-                        new_visited = visited.copy()
-                        new_visited.add((end_row, end_col))
-                        subsequent = {}
-                        self._get_captures(piece, end_row, end_col, new_skipped, subsequent, new_visited)
-                        if subsequent:
-                            for final_move, further_skips in subsequent.items():
-                                total_skips = new_skipped + further_skips
-                                if final_move in captures:
-                                    if len(total_skips) > len(captures[final_move]):
-                                        captures[final_move] = total_skips
-                                else:
-                                    captures[final_move] = total_skips
-                        else:
-                            if (end_row, end_col) in captures:
-                                if len(new_skipped) > len(captures[(end_row, end_col)]):
-                                    captures[(end_row, end_col)] = new_skipped
-                            else:
-                                captures[(end_row, end_col)] = new_skipped
+
+                    # Check if this jump is valid
+                    if mid_piece != 0 and mid_piece.color != piece.color and \
+                       mid_piece not in current_skipped and end_cell == 0:
+
+                        new_skipped = current_skipped + [mid_piece]
+                        new_visited = visited.copy() # Pass a copy down recursion
+
+                        # Recursively explore further jumps from the landing square
+                        # Note: We pass the *original* captures dict to accumulate results
+                        self._get_captures(piece, end_row, end_col, new_skipped, captures, new_visited)
+                        
+                        #  mark that we initiated a recursive search from this path.
+                        # The actual results (final landing spots and skips) will be added 
+                        # to the 'captures' dict by the deepest successful calls in the recursion.
+                        found_further_jump = True
+
+
+        
+        if not found_further_jump and current_skipped: # Must have skipped at least one piece to be a capture end
+             final_pos = (row, col) # The current (row, col) is the final landing spot
+             # Update if this path is longer than an existing one to the same square
+             if final_pos not in captures or len(current_skipped) > len(captures[final_pos]):
+                 captures[final_pos] = current_skipped
+
         return captures
 
     def copy(self):
