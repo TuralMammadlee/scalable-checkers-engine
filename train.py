@@ -133,15 +133,6 @@ def augment_board(board, color, policy=None):
     else:
         augmented.append(board)
 
-    # Horizontal flip
-    h_flip = board.copy()
-    h_flip.board = horizontal_flip_board(board.board)
-    if policy is not None:
-        h_policy = flip_policy_horizontal(policy)
-        augmented.append((h_flip, h_policy))
-    else:
-        augmented.append(h_flip)
-
     # Vertical flip
     v_flip = board.copy()
     v_flip.board = vertical_flip_board(board.board)
@@ -227,51 +218,79 @@ def select_move(board, color, model, temperature=1.0, move_mode="cnn"):
 
 def simulate_game(model, best_model=None, temperature=1.0, move_mode="cnn", board_size=8):
     board = Board(rows=board_size, cols=board_size)
-    transitions = []
+    game_transitions = [] # Renamed from transitions to avoid conflict in loop
     move_history = []
     player_turn = 'white'
     no_progress_count = 0
     while board.winner() is None and no_progress_count < 40:
         current_model = model if player_turn == 'white' else best_model if best_model is not None else model
-        state = copy.deepcopy(board)
+        state = copy.deepcopy(board) # State *before* the move
         move = select_move(board, player_turn, current_model, temperature, move_mode)
         if move is None:
+            # If no move possible, game ends, determine winner based on whose turn it is
             winner = 'black' if player_turn == 'white' else 'white'
             break
+        
         piece, action, skipped = move
         move_history.append((player_turn, piece, action, skipped))
+        
+        # Create policy target for this move
+        policy_target = torch.zeros(board_size * board_size)
+        move_idx = action[0] * board_size + action[1]
+        if 0 <= move_idx < len(policy_target):
+            policy_target[move_idx] = 1.0
+
+        # --- Apply Augmentation Here --- 
+        augmented_experiences = augment_board(state, player_turn, policy_target)
+
+        # Store original and augmented transitions (with reward=0 for now)
+        # Note: next_state is not determined yet, will be filled after move execution
+        for aug_state, aug_policy in augmented_experiences:
+             # Store state, turn, reward (initially 0), policy_target. Placeholder for next_state and done.
+             game_transitions.append([aug_state, player_turn, 0, None, False, aug_policy]) 
+        
+        # Execute the move on the main board
         pieces_before = board.black_left + board.white_left
         kings_before = board.black_kings + board.white_kings
         board.move(piece, action[0], action[1])
         if skipped:
             board.remove(skipped)
+            
+        # --- Update next_state for all transitions generated in this step --- 
+        current_next_state = copy.deepcopy(board)
+        for i in range(len(game_transitions) - len(augmented_experiences), len(game_transitions)):
+            game_transitions[i][3] = current_next_state # Update the next_state placeholder
+        
         pieces_after = board.black_left + board.white_left
         kings_after = board.black_kings + board.white_kings
         if pieces_after < pieces_before or kings_after > kings_before:
             no_progress_count = 0
         else:
             no_progress_count += 1
-        next_state = copy.deepcopy(board)
-        # Initially, reward is 0
-        reward = 0
-        policy_target = torch.zeros(board_size * board_size)
-        move_idx = action[0] * board_size + action[1]
-        policy_target[move_idx] = 1.0
-        transitions.append((state, player_turn, reward, next_state, False, policy_target))
+            
         player_turn = 'black' if player_turn == 'white' else 'white'
-    winner = board.winner()
+        
+    # If loop finished without break, determine winner from board state
+    if 'winner' not in locals():
+        winner = board.winner()
+
     # Propagate final game outcome reward to each transition
     if winner == "white":
         final_reward = 1
     elif winner == "black":
         final_reward = -1
     else:
-        final_reward = 0
-    # Update reward for each transition
-    for i in range(len(transitions)):
-        state, turn, _, next_state, done, policy_target = transitions[i]
-        transitions[i] = (state, turn, final_reward, next_state, done, policy_target)
-    return transitions, winner, move_history
+        final_reward = 0 # Draw
+
+    # Update reward for each transition, considering player perspective
+    final_transitions = []
+    for state, turn, _, next_state, done, policy_target in game_transitions:
+        perspective_reward = final_reward if turn == 'white' else -final_reward
+        # Mark the last state-action as done (though 'done' isn't heavily used later here)
+        is_done = (next_state is None) # Or check if next_state itself represents a terminal state if needed
+        final_transitions.append((state, turn, perspective_reward, next_state, is_done, policy_target))
+
+    return final_transitions, winner, move_history
 
 def sample_validation_data(replay_buffer, sample_size=100):
     if len(replay_buffer) < sample_size:
