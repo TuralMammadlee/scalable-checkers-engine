@@ -156,6 +156,175 @@ def hybrid_move_fn(board, color, model, depth=2):
         return (best["piece"], best["move"], best["skipped"])
     return None
 
+def raven_evaluation(board, color):
+    """Raven's evaluation function exactly from ravencore.py"""
+    opponent = 'black' if color == 'white' else 'white'
+    total_pieces = board.black_left + board.white_left
+    initial_rows = (board.rows - 2) // 2
+    max_pieces = 2 * (initial_rows * (board.cols // 2))
+    game_stage = 1.0 - (total_pieces / max_pieces) if max_pieces > 0 else 0
+
+    # King values increase in endgame
+    king_value_base = 1.75
+    king_value_endgame = 2.5
+    king_value = king_value_base + (king_value_endgame - king_value_base) * game_stage
+
+    # Material evaluation with exact values
+    black_piece_value = 1.0
+    black_king_value = king_value
+    white_piece_value = 1.0
+    white_king_value = king_value
+
+    black_value = board.black_left * black_piece_value + board.black_kings * black_king_value
+    white_value = board.white_left * white_piece_value + board.white_kings * white_king_value
+    material_heuristic = black_value - white_value if color == 'black' else white_value - black_value
+
+    # Mobility evaluation
+    mobility_self = sum(len(board.get_valid_moves(piece)) for piece in board.get_all_pieces(color))
+    mobility_opp = sum(len(board.get_valid_moves(piece)) for piece in board.get_all_pieces(opponent))
+    mobility_factor = mobility_self - mobility_opp
+
+    # Center control
+    center_weight = 0.3 * (1 - game_stage)
+    center_row = board.rows / 2
+    center_col = board.cols / 2
+    pos_control = 0
+    for piece in board.get_all_pieces(color):
+        pos_control += 1.0 / (abs(piece.row - center_row) + abs(piece.col - center_col) + 1)
+    for piece in board.get_all_pieces(opponent):
+        pos_control -= 1.0 / (abs(piece.row - center_row) + abs(piece.col - center_col) + 1)
+
+    # King safety (added from ravencore.py)
+    king_safety_penalty = 0
+    king_safety_weight = 0.1 * (1 - game_stage)
+    for piece in board.get_all_pieces(color):
+        if piece.king:
+            # Penalize kings that are too far forward
+            if color == 'white' and piece.row < board.rows // 2:
+                king_safety_penalty += 0.1
+            elif color == 'black' and piece.row > board.rows // 2:
+                king_safety_penalty += 0.1
+
+    # Combine all factors
+    combined_heuristic = (
+        material_heuristic + 
+        0.1 * mobility_factor + 
+        center_weight * pos_control -
+        king_safety_weight * king_safety_penalty
+    )
+
+    return combined_heuristic
+
+def raven_minimax(board, depth, color, alpha, beta, maximizing_player, start_time=None, time_limit=None):
+    """Raven's minimax search with alpha-beta pruning and time limit"""
+    if start_time and time_limit:
+        if time.time() - start_time > time_limit:
+            return None, None
+
+    if depth == 0 or board.winner() is not None:
+        return raven_evaluation(board, color), None
+
+    best_move = None
+    if maximizing_player:
+        max_eval = float('-inf')
+        for piece in board.get_all_pieces(color):
+            valid_moves = board.get_valid_moves(piece)
+            for move, skipped in valid_moves.items():
+                # Check for forced captures
+                has_forced_capture = False
+                for p in board.get_all_pieces(color):
+                    moves = board.get_valid_moves(p)
+                    for _, sk in moves.items():
+                        if sk:
+                            has_forced_capture = True
+                            break
+                    if has_forced_capture:
+                        break
+                
+                # If there's a forced capture but this move isn't a capture, skip it
+                if has_forced_capture and not skipped:
+                    continue
+                    
+                board_copy = board.copy()
+                board_copy.move(piece, move[0], move[1])
+                if skipped:
+                    board_copy.remove(skipped)
+                eval, _ = raven_minimax(board_copy, depth - 1, color, alpha, beta, False, start_time, time_limit)
+                if eval is None:  # Timeout
+                    return None, None
+                if eval > max_eval:
+                    max_eval = eval
+                    best_move = (piece, move, skipped)
+                alpha = max(alpha, eval)
+                if beta <= alpha:
+                    break
+        return max_eval, best_move
+    else:
+        min_eval = float('inf')
+        opponent = 'black' if color == 'white' else 'white'
+        for piece in board.get_all_pieces(opponent):
+            valid_moves = board.get_valid_moves(piece)
+            for move, skipped in valid_moves.items():
+                # Check for forced captures
+                has_forced_capture = False
+                for p in board.get_all_pieces(opponent):
+                    moves = board.get_valid_moves(p)
+                    for _, sk in moves.items():
+                        if sk:
+                            has_forced_capture = True
+                            break
+                    if has_forced_capture:
+                        break
+                
+                # If there's a forced capture but this move isn't a capture, skip it
+                if has_forced_capture and not skipped:
+                    continue
+                    
+                board_copy = board.copy()
+                board_copy.move(piece, move[0], move[1])
+                if skipped:
+                    board_copy.remove(skipped)
+                eval, _ = raven_minimax(board_copy, depth - 1, color, alpha, beta, True, start_time, time_limit)
+                if eval is None:  # Timeout
+                    return None, None
+                if eval < min_eval:
+                    min_eval = eval
+                    best_move = (piece, move, skipped)
+                beta = min(beta, eval)
+                if beta <= alpha:
+                    break
+        return min_eval, best_move
+
+def raven_move_fn(board, color, model=None, depth=4):
+    """Raven's move function that uses iterative deepening with time limit"""
+    start_time = time.time()
+    time_limit = 5.0  # 5 seconds per move
+    best_move = None
+    current_depth = 1
+    
+    while current_depth <= depth:
+        eval, move = raven_minimax(
+            board, 
+            current_depth, 
+            color, 
+            float('-inf'), 
+            float('inf'), 
+            True,
+            start_time,
+            time_limit
+        )
+        
+        if eval is None:  # Timeout
+            break
+            
+        best_move = move
+        current_depth += 1
+        
+        # If we're close to time limit, stop
+        if time.time() - start_time > time_limit * 0.9:
+            break
+    
+    return best_move
 
 # ---------------------------------------------------------------------
 # 3) Tournament logic:  AI  vs  opponents
@@ -167,23 +336,49 @@ def simulate_game_with_stats(move_fn_white, move_fn_black, board_size=8, max_mov
     white_captures = 0
     black_captures = 0
     no_progress_count = 0
-    max_no_progress = 30
+    max_no_progress = 50
     timeout = False
     start_time = time.time()
-    max_game_time = 60  # e.g. it is an instance for testing 
+    max_game_time = 300  # Increased to 5 minutes
     
     while move_count < max_moves:
         if time.time() - start_time > max_game_time:
             timeout = True
             break
-        if board.winner() is not None:
+            
+        # Check for valid moves before proceeding
+        valid_moves = []
+        for piece in board.get_all_pieces(current_player):
+            piece_moves = board.get_valid_moves(piece)
+            if piece_moves:
+                valid_moves.extend([(piece, move, skipped) for move, skipped in piece_moves.items()])
+        
+        if not valid_moves:
+            # No valid moves for current player
             break
+            
         move_fn = move_fn_white if current_player == "white" else move_fn_black
         move = move_fn(board, current_player)
+        
         if move is None:
-            # no valid moves => break
-            break
+            # If move function returns None, try to find a valid move
+            if valid_moves:
+                move = random.choice(valid_moves)
+            else:
+                break
+                
         piece, move_coords, skipped = move
+        
+        # Verify the move is valid
+        if move_coords not in board.get_valid_moves(piece):
+            # If invalid move, try another valid move
+            if valid_moves:
+                move = random.choice(valid_moves)
+                piece, move_coords, skipped = move
+            else:
+                break
+                
+        # Execute the move
         board.move(piece, move_coords[0], move_coords[1])
         if skipped:
             board.remove(skipped)
@@ -195,27 +390,35 @@ def simulate_game_with_stats(move_fn_white, move_fn_black, board_size=8, max_mov
         else:
             no_progress_count += 1
         
+        # Check for forced captures
+        has_forced_capture = False
+        for p in board.get_all_pieces(current_player):
+            moves = board.get_valid_moves(p)
+            for _, sk in moves.items():
+                if sk:  # If there's a capture available
+                    has_forced_capture = True
+                    break
+            if has_forced_capture:
+                break
+                
+        if has_forced_capture:
+            # If there's a forced capture but we didn't take it, the move was invalid
+            continue
+        
         current_player = "black" if current_player == "white" else "white"
         move_count += 1
+        
         if no_progress_count >= max_no_progress:
             break
     
     winner = board.winner()
     if winner is None:
-        # Always declare a winner based on piece count
-        if board.white_left > board.black_left:
-            winner = "white"
-        elif board.black_left > board.white_left:
-            winner = "black"
+        # Calculate material advantage
+        white_advantage = (board.white_left + board.white_kings * 1.5) - (board.black_left + board.black_kings * 1.5)
+        if abs(white_advantage) < 0.5:  # Very close game
+            winner = "draw"
         else:
-            # If equal pieces, use king count as tiebreaker
-            if board.white_kings > board.black_kings:
-                winner = "white"
-            elif board.black_kings > board.white_kings:
-                winner = "black"
-            else:
-                # If still tied, give advantage to the player who made fewer moves
-                winner = "black" if move_count % 2 == 0 else "white"
+            winner = "white" if white_advantage > 0 else "black"
     
     return {
         "winner": winner,
@@ -277,7 +480,7 @@ def create_resized_model(original_model, new_size):
     return resized_model
 
 def tournament_mode():
-    # Load  main model
+    # Load main model
     main_model = NeuralNetworkModel(board_rows=BOARD_SIZE, board_cols=BOARD_SIZE)
     if USE_TRAINED and os.path.exists("model.pth"):
         main_model.load_model("model.pth")
@@ -288,21 +491,16 @@ def tournament_mode():
     
     # Define opponents 
     opponents = {
-        "Minimax": lambda board, color: minimax_move_fn(board, color, None, depth=3),
-        "Random": lambda board, color: random_move_fn(board, color),
-        "Hybrid": lambda board, color: hybrid_move_fn(board, color, main_model, depth=3),
-        "Aggressive": lambda board, color: aggressive_move_fn(board, color),
-        "Defensive": lambda board, color: defensive_move_fn(board, color),
+        "Raven": lambda board, color: raven_move_fn(board, color, depth=4)
     }
     
     # Test different board sizes
-    board_sizes = [6, 8, 10, 12, 14, 16, 18]
+    board_sizes = [8]  # Only 8x8 board
     
     print("\n=== Configuration ===")
-    print(f"• Number of board sizes to test: {len(board_sizes)}")
-    print(f"• Board sizes: {board_sizes}")
-    print(f"• Number of opponents: {len(opponents)}")
-    print(f"• Games per matchup: 10")
+    print(f"• Board size: 8x8")
+    print(f"• Number of opponents: 1 (Raven)")
+    print(f"• Games per matchup: 20 (10 each color)")
     print("• Using iterative deepening minimax with neural network evaluation\n")
     
     # Store results for each board size
@@ -323,7 +521,7 @@ def tournament_mode():
         print(f"• Resizing model for {size}x{size} board...")
         resized_model = create_resized_model(main_model, size)
     
-    for opp_name, opp_move_fn in opponents.items():
+        for opp_name, opp_move_fn in opponents.items():
             print(f"\n Testing against: {opp_name}")
             print("-" * 30)
             
@@ -338,63 +536,69 @@ def tournament_mode():
             decisiveness_scores = []
             timeouts = 0
             
-            for game_i in range(10):  # increased from 5 to 10
-                print(f"  Game {game_i + 1}/10: ", end="", flush=True)
+            # Play 10 games with your AI as white
+            for game_i in range(10):
+                print(f"  Game {game_i + 1}/10 (Your AI as White): ", end="", flush=True)
                 
-                if game_i % 2 == 0:
-                    game_result = simulate_game_with_stats(
-                        lambda b, c: engine(b, c, resized_model),  # Using  actual engine
-                    opp_move_fn,
-                        board_size=size,
-                        max_moves=150
+                game_result = simulate_game_with_stats(
+                    lambda b, c: engine(b, c, resized_model),  # Your AI as white
+                    opp_move_fn,  # Raven as black
+                    board_size=size,
+                    max_moves=150
                 )
-                    
-                    if game_result["winner"] == "white":
-                        wins += 1
-                        print("Won ✓")
-                    elif game_result["winner"] == "black":
-                        losses += 1
-                        print("Lost ✗")
-                    else:
-                        draws += 1
-                        print("Draw =")
-                    
-                    total_moves += game_result["moves"]
-                    own_captures += game_result["white_captures"]
-                    opp_captures += game_result["black_captures"]
-                    own_kings += game_result["white_kings"]
-                    opp_kings += game_result["black_kings"]
-                    piece_diff = game_result["final_white_pieces"] - game_result["final_black_pieces"]
-                    decisiveness_scores.append(piece_diff)
-                    
-            else:
-                    game_result = simulate_game_with_stats(
-                    opp_move_fn,
-                        lambda b, c: engine(b, c, resized_model),  # Using  actual engine
-                        board_size=size,
-                        max_moves=150
-                )
-                    
-                    if game_result["winner"] == "black":
-                     wins += 1
-                     print("Won ✓")
-                    elif game_result["winner"] == "white":
-                        losses += 1
-                        print("Lost ✗")
-                    else:
-                        draws += 1
-                        print("Draw =")
-                    
-                    total_moves += game_result["moves"]
-                    own_captures += game_result["black_captures"]
-                    opp_captures += game_result["white_captures"]
-                    own_kings += game_result["black_kings"]
-                    opp_kings += game_result["white_kings"]
-                    piece_diff = game_result["final_black_pieces"] - game_result["final_white_pieces"]
-                    decisiveness_scores.append(piece_diff)
                 
-                    if game_result.get("timeout", False):
-                        timeouts += 1
+                if game_result["winner"] == "white":
+                    wins += 1
+                    print("Won ✓")
+                elif game_result["winner"] == "black":
+                    losses += 1
+                    print("Lost ✗")
+                else:
+                    draws += 1
+                    print("Draw =")
+                
+                total_moves += game_result["moves"]
+                own_captures += game_result["white_captures"]
+                opp_captures += game_result["black_captures"]
+                own_kings += game_result["white_kings"]
+                opp_kings += game_result["black_kings"]
+                piece_diff = game_result["final_white_pieces"] - game_result["final_black_pieces"]
+                decisiveness_scores.append(piece_diff)
+                
+                if game_result.get("timeout", False):
+                    timeouts += 1
+            
+            # Play 10 games with your AI as black
+            for game_i in range(10):
+                print(f"  Game {game_i + 1}/10 (Your AI as Black): ", end="", flush=True)
+                
+                game_result = simulate_game_with_stats(
+                    opp_move_fn,  # Raven as white
+                    lambda b, c: engine(b, c, resized_model),  # Your AI as black
+                    board_size=size,
+                    max_moves=150
+                )
+                
+                if game_result["winner"] == "black":
+                    wins += 1
+                    print("Won ✓")
+                elif game_result["winner"] == "white":
+                    losses += 1
+                    print("Lost ✗")
+                else:
+                    draws += 1
+                    print("Draw =")
+                
+                total_moves += game_result["moves"]
+                own_captures += game_result["black_captures"]
+                opp_captures += game_result["white_captures"]
+                own_kings += game_result["black_kings"]
+                opp_kings += game_result["white_kings"]
+                piece_diff = game_result["final_black_pieces"] - game_result["final_white_pieces"]
+                decisiveness_scores.append(piece_diff)
+                
+                if game_result.get("timeout", False):
+                    timeouts += 1
             
             total_games = wins + losses + draws
             if total_games == 0:
@@ -431,76 +635,53 @@ def tournament_mode():
 def plot_tournament_results_with_heatmap(size_results):
     """Plot tournament results with a heatmap for win rates across board sizes"""
     fig = plt.figure(figsize=(15, 10))
-    fig.suptitle("Tournament Results: Your AI vs Various Opponents", fontsize=14)
+    fig.suptitle("Tournament Results: Your AI vs Raven", fontsize=14)
     
-    # 1. Win Rate Heatmap
+    # 1. Win Rate Pie Chart
     ax1 = fig.add_subplot(221)
-    board_sizes = sorted(size_results.keys())
-    opponents = list(size_results[board_sizes[0]]["Win Rate (%)"].keys())
+    wins = size_results[8]["Win Rate (%)"]["Raven"]
+    losses = 100 - wins
+    labels = ['Your AI Wins', 'Raven Wins']
+    sizes = [wins, losses]
+    colors = ['#5cb85c', '#d9534f']
+    explode = (0.1, 0)  # explode the 1st slice
+    ax1.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
+            shadow=True, startangle=90)
+    ax1.axis('equal')
+    ax1.set_title("Win Rate Distribution")
     
-    heatmap_data = np.zeros((len(opponents), len(board_sizes)))
-    for i, opp in enumerate(opponents):
-        for j, size in enumerate(board_sizes):
-            heatmap_data[i, j] = size_results[size]["Win Rate (%)"][opp]
-    
-    im = ax1.imshow(heatmap_data, aspect='auto', cmap='RdYlGn')
-    ax1.set_xticks(np.arange(len(board_sizes)))
-    ax1.set_yticks(np.arange(len(opponents)))
-    ax1.set_xticklabels([f"{size}x{size}" for size in board_sizes])
-    ax1.set_yticklabels(opponents)
-    plt.colorbar(im, ax=ax1, label='Win Rate (%)')
-    ax1.set_title("Win Rate Heatmap Across Board Sizes")
-    
-    # Add text annotations
-    for i in range(len(opponents)):
-        for j in range(len(board_sizes)):
-            ax1.text(j, i, f"{heatmap_data[i, j]:.1f}%", ha="center", va="center", color="black")
-    
-    # 2. Average Win Rate Bar Chart
+    # 2. Average Game Length
     ax2 = fig.add_subplot(222)
-    avg_win_rates = [np.mean([size_results[size]["Win Rate (%)"][opp] for size in board_sizes]) for opp in opponents]
-    y_pos = np.arange(len(opponents))
-    colors = ['#5cb85c' if r >= 50 else '#d9534f' for r in avg_win_rates]
-    bars = ax2.barh(y_pos, avg_win_rates, color=colors)
-    ax2.set_yticks(y_pos)
-    ax2.set_yticklabels(opponents)
-    ax2.invert_yaxis()
-    ax2.set_xlabel("Average Win Rate (%)")
-    ax2.set_title("Average Win Rate Across All Board Sizes")
-    ax2.axvline(x=50, color='gray', linestyle='--')
-    for i, bar in enumerate(bars):
-        w = bar.get_width()
-        ax2.text(w + 1, bar.get_y() + bar.get_height()/2, f"{w:.1f}%", va='center')
+    avg_moves = size_results[8]["Avg Game Length"]["Raven"]
+    ax2.bar(['Average Game Length'], [avg_moves], color='lightblue')
+    ax2.set_title("Average Game Length (moves)")
+    ax2.text(0, avg_moves + 0.3, f"{avg_moves:.1f}", ha='center')
     
-    # 3. Average Game Length
+    # 3. Efficiency Ratios
     ax3 = fig.add_subplot(223)
-    avg_moves = [size_results[8]["Avg Game Length"][opp] for opp in opponents]
-    bars = ax3.bar(opponents, avg_moves, color='lightblue')
-    ax3.set_title("Average Game Length (moves)")
-    ax3.set_xticklabels(opponents, rotation=45, ha='right')
-    for bar in bars:
-        h = bar.get_height()
-        ax3.text(bar.get_x() + bar.get_width()/2., h+0.3, f"{h:.1f}", ha='center')
-    
-    # 4. Efficiency Ratios
-    ax4 = fig.add_subplot(224)
-    capture_ratios = [size_results[8]["Capture Ratio"][opp] for opp in opponents]
-    king_ratios = [size_results[8]["King Ratio"][opp] for opp in opponents]
-    x = np.arange(len(opponents))
+    capture_ratio = size_results[8]["Capture Ratio"]["Raven"]
+    king_ratio = size_results[8]["King Ratio"]["Raven"]
+    x = np.arange(1)
     width = 0.35
-    bars1 = ax4.bar(x - width/2, capture_ratios, width, label='Capture Ratio', color='salmon')
-    bars2 = ax4.bar(x + width/2, king_ratios, width, label='King Ratio', color='plum')
-    ax4.set_title("Efficiency Ratios (higher is better)")
-    ax4.set_xticks(x)
-    ax4.set_xticklabels(opponents, rotation=45, ha='right')
-    ax4.axhline(y=1.0, color='gray', linestyle='--')
-    ax4.legend()
+    bars1 = ax3.bar(x - width/2, capture_ratio, width, label='Capture Ratio', color='salmon')
+    bars2 = ax3.bar(x + width/2, king_ratio, width, label='King Ratio', color='plum')
+    ax3.set_title("Efficiency Ratios (higher is better)")
+    ax3.set_xticks([])
+    ax3.axhline(y=1.0, color='gray', linestyle='--')
+    ax3.legend()
     for bar in bars1:
         val = bar.get_height()
-        ax4.text(bar.get_x() + bar.get_width()/2., val+0.02, f"{val:.2f}", ha='center', va='bottom', fontsize=8)
+        ax3.text(bar.get_x() + bar.get_width()/2., val+0.02, f"{val:.2f}", ha='center', va='bottom', fontsize=8)
     for bar in bars2:
         val = bar.get_height()
-        ax4.text(bar.get_x() + bar.get_width()/2., val+0.02, f"{val:.2f}", ha='center', va='bottom', fontsize=8)
+        ax3.text(bar.get_x() + bar.get_width()/2., val+0.02, f"{val:.2f}", ha='center', va='bottom', fontsize=8)
+    
+    # 4. Decisiveness
+    ax4 = fig.add_subplot(224)
+    decisiveness = size_results[8]["Decisiveness"]["Raven"]
+    ax4.bar(['Decisiveness'], [decisiveness], color='lightgreen')
+    ax4.set_title("Average Piece Difference at Game End")
+    ax4.text(0, decisiveness + 0.3, f"{decisiveness:.1f}", ha='center')
     
     plt.tight_layout()
     plt.savefig('tournament_results.png', dpi=300)
