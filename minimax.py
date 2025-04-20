@@ -4,9 +4,21 @@ import random
 import numpy as np
 import torch
 import traceback
+import logging
 from evaluation import evaluate_board
 from checkers import Board
 from collections import OrderedDict
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("minimax_errors.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("minimax")
 
 # LRU Cache for transposition table
 class LRUCache:
@@ -59,7 +71,7 @@ def board_hash(board):
                     h ^= ZOBRIST_TABLE[(r, c, pt)]
         return h
     except Exception as e:
-        print(f"Error in board_hash: {e}")
+        logger.error(f"Error in board_hash: {e}", exc_info=True)
         return random.getrandbits(64)
 
 def is_time_up(start_time, time_limit):
@@ -140,8 +152,7 @@ def quiescence_search(board, alpha, beta, maximizing_player, color, model, depth
                     break
             return min_eval, best_move
     except Exception as e:
-        print(f"Error in quiescence_search: {e}")
-        traceback.print_exc()
+        logger.error(f"Error in quiescence_search: {e}", exc_info=True)
         return evaluate_board(board, color, model=model), None
 
 def minimax(board, depth, alpha, beta, maximizing_player, color, model, start_time=None, time_limit=float('inf'), use_quiescence=True):
@@ -184,7 +195,7 @@ def minimax(board, depth, alpha, beta, maximizing_player, color, model, start_ti
             moves = get_all_moves(board, color)
             if not moves:
                 return -1000, None
-            moves = order_moves(board, moves, color)
+            moves = order_moves(board, moves, color, model)
             for move in moves:
                 # In recursive calls, the current turn switches to the opponent.
                 evaluation, _ = minimax(move['board'], depth - 1, alpha, beta, False, color, model, start_time, time_limit, use_quiescence)
@@ -215,7 +226,7 @@ def minimax(board, depth, alpha, beta, maximizing_player, color, model, start_ti
             moves = get_all_moves(board, opponent)
             if not moves:
                 return 1000, None
-            moves = order_moves(board, moves, opponent)
+            moves = order_moves(board, moves, opponent, model)
             for move in moves:
                 evaluation, _ = minimax(move['board'], depth - 1, alpha, beta, True, color, model, start_time, time_limit, use_quiescence)
                 if evaluation < min_eval:
@@ -240,103 +251,156 @@ def minimax(board, depth, alpha, beta, maximizing_player, color, model, start_ti
                 })
             return min_eval, best_move
     except Exception as e:
-        print(f"Error in minimax: {e}")
-        traceback.print_exc()
+        logger.error(f"Error in minimax: {e}", exc_info=True)
         return evaluate_board(board, color, model=model), None
 
 def iterative_deepening(board, max_depth, color, model, time_limit=5.0):
     global node_expansions
     node_expansions = 0
     best_move = None
-    best_eval = -math.inf if color == 'white' else math.inf
-    start_time = time.time()
-    
-    for depth in range(1, max_depth + 1):
-        if time.time() - start_time > time_limit:
-            print(f"Time limit reached at depth {depth-1}")
-            break
+    try:
+        start_time = time.time()
+        transposition_table.clear()
+        
+        for depth in range(1, max_depth + 1):
+            logger.info(f"Starting search at depth {depth}")
+            evaluation, move = minimax(board, depth, -math.inf, math.inf, True, color, model, start_time, time_limit)
             
-        depth_start_time = time.time()
-        # Always call minimax with maximizing_player=True so that the current turn is searched for moves of the base player.
-        eval_value, move = minimax(board, depth, float('-inf'), float('inf'), True, color, model, start_time, time_limit, use_quiescence=(depth==max_depth))
-        search_time = time.time() - depth_start_time
-        print(f"Depth {depth} completed in {search_time:.2f}s - Eval: {eval_value:.2f}")
+            if is_time_up(start_time, time_limit):
+                logger.info(f"Time limit reached during depth {depth} search")
+                break
+                
+            if move is not None:
+                best_move = move
+                logger.info(f"Depth {depth} complete - Best eval: {evaluation:.3f}")
+            else:
+                logger.warning(f"No valid move found at depth {depth}")
+                break
+                
+            if abs(evaluation) > 900:  # Near-terminal state, no need to search deeper
+                logger.info(f"Terminal value detected at depth {depth}: {evaluation:.3f}")
+                break
+                
+        end_time = time.time()
+        search_time = end_time - start_time
+        logger.info(f"Search completed in {search_time:.3f}s. Nodes expanded: {node_expansions}")
+        logger.info(f"Nodes per second: {node_expansions / search_time if search_time > 0 else 0:.1f}")
         
-        if move is not None:
-            best_move = move
-            best_eval = eval_value
-        
-        if color == 'white' and eval_value > 900:
-            print("Found winning move for white!")
-            break
-        elif color == 'black' and eval_value < -900:
-            print("Found winning move for black!")
-            break
-        
-        if time.time() - start_time > time_limit * 0.8:
-            print("Time budget almost exhausted, stopping search")
-            break
-
-    if best_move is None:
-        moves = get_all_moves(board, color)
-        if moves:
-            best_move = moves[0]
-            print("Using fallback move")
-    
-    print(f"Iterative deepening completed in {time.time()-start_time:.2f}s, best eval: {best_eval:.2f}")
-    return best_move
+        if best_move is None:
+            logger.warning("No valid move found during iterative deepening")
+            # Try a fallback single depth search
+            evaluation, best_move = minimax(board, 1, -math.inf, math.inf, True, color, model, None, float('inf'))
+            if best_move is None:
+                # Emergency fallback: get any valid move
+                logger.error("Emergency fallback: searching for any valid move")
+                moves = get_all_moves(board, color)
+                if moves:
+                    best_move = moves[0]
+                    
+        return best_move
+    except Exception as e:
+        logger.error(f"Error in iterative_deepening: {e}", exc_info=True)
+        # Emergency fallback
+        try:
+            moves = get_all_moves(board, color)
+            if moves:
+                logger.info("Using fallback move selection after error")
+                return moves[0]
+        except Exception as nested_e:
+            logger.error(f"Fallback move selection failed: {nested_e}", exc_info=True)
+        return None
 
 def get_all_moves(board, color):
-    moves = []
-    for piece in board.get_all_pieces(color):
-        valid_moves = board.get_valid_moves(piece)
-        for move, skipped in valid_moves.items():
-            temp_board = board.copy()
-            temp_piece = None
-            for p in temp_board.get_all_pieces(color):
-                if p.row == piece.row and p.col == piece.col:
-                    temp_piece = p
-                    break
-            if temp_piece is not None:
+    try:
+        moves = []
+        for piece in board.get_all_pieces(color):
+            valid_moves = board.get_valid_moves(piece)
+            for move, skipped in valid_moves.items():
+                temp_board = board.copy()
+                temp_piece = None
+                for p in temp_board.get_all_pieces(color):
+                    if p.row == piece.row and p.col == piece.col:
+                        temp_piece = p
+                        break
+                if temp_piece is None:
+                    logger.warning(f"Could not find piece at {piece.row},{piece.col} for color {color}")
+                    continue
                 temp_board.move(temp_piece, move[0], move[1])
                 if skipped:
                     temp_board.remove(skipped)
-                moves.append({"board": temp_board, "piece": piece, "move": move, "skipped": skipped})
-    return moves
+                moves.append({'board': temp_board, 'piece': piece, 'move': move, 'skipped': skipped})
+        
+        if not moves:
+            logger.warning(f"No legal moves found for {color}")
+            # Verify that the board state is valid
+            black_pieces = len(board.get_all_pieces('black'))
+            white_pieces = len(board.get_all_pieces('white'))
+            logger.info(f"Board state: {black_pieces} black pieces, {white_pieces} white pieces")
+            if black_pieces == 0 or white_pieces == 0:
+                logger.info("Terminal state detected: one side has no pieces")
+            
+        return moves
+    except Exception as e:
+        logger.error(f"Error in get_all_moves: {e}", exc_info=True)
+        return []
 
-def order_moves(board, moves, color):
+def order_moves(board, moves, color, model):
+    # Get policy prediction for the current board
+    policy_scores_tensor = model.predict_move(board, color)
+    policy_scores = policy_scores_tensor.cpu().numpy()
+    policy_scores = np.nan_to_num(policy_scores, nan=-float('inf')) # Handle potential NaNs
+
     scored_moves = []
     opponent = 'black' if color == 'white' else 'white'
     center_row = board.rows / 2
     center_col = board.cols / 2
+
     for move in moves:
-        score = 0
+        heuristic_score = 0 # Renamed 'score' to 'heuristic_score'
         piece = move.get('piece')
         dest = move.get('move')
         if piece is None or dest is None:
             continue
-        # Prioritize capturing moves and moves capturing kings
+
+        # --- Calculate Heuristic Score (same as before) ---
         if move.get('skipped'):
             for skipped_piece in move.get('skipped'):
                 if skipped_piece.king:
-                    score += 1000
+                    heuristic_score += 1000
                 else:
-                    score += 500
-        if board.get_piece(dest[0], dest[1]) != 0:
-            score += 1000
+                    heuristic_score += 500
+        # Simplified capture check - heuristic only, not exact
+        # if board.get_piece(dest[0], dest[1]) != 0: 
+        #     heuristic_score += 1000 # Potential capture (heuristic)
         if color == 'white' and dest[0] == board.rows - 1 and not piece.king:
-            score += 500
+            heuristic_score += 500 # Kinging move
         elif color == 'black' and dest[0] == 0 and not piece.king:
-            score += 500
+            heuristic_score += 500 # Kinging move
         center_dist = abs(dest[0] - center_row) + abs(dest[1] - center_col)
-        score += 50 / (center_dist + 1)
+        heuristic_score += 50 / (center_dist + 1) # Center control
         board_key = board_hash(board)
         cache_entry = transposition_table.get(board_key)
-        if cache_entry and cache_entry.get('best_move') == move:
-            score += 2000
-        scored_moves.append((move, score))
-    if color == 'white':
-        scored_moves.sort(key=lambda x: x[1], reverse=True)
-    else:
-        scored_moves.sort(key=lambda x: x[1])
-    return [move for move, score in scored_moves]
+        # Check if the 'best_move' from cache matches the current move structure
+        if cache_entry and cache_entry.get('best_move'):
+            cached_move = cache_entry.get('best_move')
+            # Compare relevant parts (piece position, destination)
+            if cached_move.get('piece') and cached_move.get('move'):
+                 if (cached_move['piece'].row == piece.row and
+                     cached_move['piece'].col == piece.col and
+                     cached_move['move'] == dest):
+                    heuristic_score += 2000 # TT Hit Bonus
+
+        # --- Get Policy Score --- 
+        policy_idx = dest[0] * board.cols + dest[1]
+        policy_score = -float('inf') # Default if index is out of bounds
+        if 0 <= policy_idx < len(policy_scores):
+             policy_score = policy_scores[policy_idx]
+
+        # Store move with both policy score and heuristic score
+        scored_moves.append((move, policy_score, heuristic_score))
+
+    # Sort primarily by policy score (descending), then by heuristic score (descending)
+    # Higher scores are better regardless of color in this combined sort
+    scored_moves.sort(key=lambda x: (x[1], x[2]), reverse=True)
+
+    return [move for move, policy_score, heuristic_score in scored_moves]
