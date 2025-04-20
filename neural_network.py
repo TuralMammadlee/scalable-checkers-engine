@@ -23,38 +23,63 @@ class ResidualBlock(nn.Module):
 class CheckersCNN(nn.Module):
     def __init__(self, board_rows, board_cols, num_residual_blocks=3):
         super(CheckersCNN, self).__init__()
-        # Updated input channels from 6 to 9
+        self.board_rows = board_rows
+        self.board_cols = board_cols
+        
+        # Input: 9 channels (board state)
         self.conv1 = nn.Conv2d(9, 64, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(64)
-        # Build a variable number of residual blocks
+        
+        # Residual blocks
         self.res_blocks = nn.ModuleList([ResidualBlock(64) for _ in range(num_residual_blocks)])
+        
+        # Policy head: 64 -> 32 channels -> adaptive pool -> FC layers
         self.conv_policy = nn.Conv2d(64, 32, kernel_size=1)
         self.bn_policy = nn.BatchNorm2d(32)
+        self.adaptive_pool_policy = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc_policy1 = nn.Linear(32, 128)
+        self.fc_policy2 = nn.Linear(128, 64)  # Fixed size intermediate layer
+        
+        # Value head: 64 -> 32 channels -> adaptive pool -> FC layers
         self.conv_value = nn.Conv2d(64, 32, kernel_size=1)
         self.bn_value = nn.BatchNorm2d(32)
-        self.fc_policy_dim = 32 * board_rows * board_cols
-        self.fc_policy = nn.Linear(self.fc_policy_dim, board_rows * board_cols)
-        self.fc_value_dim = 32 * board_rows * board_cols
-        self.fc_value1 = nn.Linear(self.fc_value_dim, 128)
+        self.adaptive_pool_value = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc_value1 = nn.Linear(32, 128)
         self.fc_value2 = nn.Linear(128, 1)
+        
         self.dropout = nn.Dropout(0.3)
     
     def forward(self, x):
+        # Common trunk
         x = F.relu(self.bn1(self.conv1(x)))
-        # Pass x through each residual block
         for block in self.res_blocks:
             x = block(x)
+        
+        # Policy branch
         policy = F.relu(self.bn_policy(self.conv_policy(x)))
-        policy = policy.view(-1, self.fc_policy_dim)
+        policy = self.adaptive_pool_policy(policy)  # shape: (batch, 32, 1, 1)
+        policy = policy.view(policy.size(0), -1)    # shape: (batch, 32)
         policy = self.dropout(policy)
-        policy = self.fc_policy(policy)
-        policy_logits = policy
+        policy = F.relu(self.fc_policy1(policy))
+        policy = self.fc_policy2(policy)            # shape: (batch, 64)
+        
+        # Reshape policy to match board size
+        policy = policy.view(-1, 8, 8)  # Reshape to 8x8 grid
+        policy = F.interpolate(policy.unsqueeze(1), 
+                             size=(self.board_rows, self.board_cols), 
+                             mode='bilinear', 
+                             align_corners=False)
+        policy = policy.squeeze(1).view(-1, self.board_rows * self.board_cols)
+        
+        # Value branch
         value = F.relu(self.bn_value(self.conv_value(x)))
-        value = value.view(-1, self.fc_value_dim)
+        value = self.adaptive_pool_value(value)     # shape: (batch, 32, 1, 1)
+        value = value.view(value.size(0), -1)       # shape: (batch, 32)
         value = self.dropout(value)
         value = F.relu(self.fc_value1(value))
-        value = torch.tanh(self.fc_value2(value))
-        return value, policy_logits
+        value = torch.tanh(self.fc_value2(value))   # shape: (batch, 1)
+        
+        return value, policy
 
 class NeuralNetworkModel:
     def __init__(self, board_rows=8, board_cols=8, lr=0.001, num_residual_blocks=3):
