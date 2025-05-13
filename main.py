@@ -27,7 +27,7 @@ TRAINING_MOVE_MODE = "cnn"  # "cnn" or "random"
 
 # Create a queue for UI callbacks
 ui_queue = queue.Queue()
-global_ui = None  # Will hold our UI instance
+global_ui = None  # Will hold  UI instance
 
 def process_ui_queue():
     while not ui_queue.empty():
@@ -206,7 +206,7 @@ DIFFICULTY_MAP = {
     "hard": 6
 }
 
-# Now our main function
+# main function
 def main():
     global global_ui
     root = tk.Tk()
