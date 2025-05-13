@@ -10,7 +10,7 @@ from evaluation import get_adaptive_weights, count_moves
 # Increase default font size for clarity
 plt.rcParams.update({'font.size': 12})
 
-def simulate_random_game(board_size, max_moves=20):
+def simulate_random_game(board_size, max_moves=150):
     """
     Simulates a random game on a board of the given size for up to max_moves.
     Returns the final board state and a history of moves.
@@ -72,7 +72,7 @@ def simulate_random_game(board_size, max_moves=20):
 
     return board, move_history
 
-def frequency_distribution_analysis(board_size, num_games=50):
+def frequency_distribution_analysis(board_size, num_games=100):
     """
     Runs multiple simulated games on a board of a given size and records
     how often each move type occurs.
@@ -87,7 +87,7 @@ def frequency_distribution_analysis(board_size, num_games=50):
         "total_moves": 0
     }
     for _ in range(num_games):
-        _, move_history = simulate_random_game(board_size, max_moves=20)
+        _, move_history = simulate_random_game(board_size, max_moves=150)
         for move in move_history:
             counters["total_moves"] += 1
             if move["capture"]:
@@ -200,7 +200,7 @@ def compute_feature_metrics(board, color):
        "nn_weight": nn_weight
     }
 
-def feature_weight_analysis(board_size, num_samples=50, color='white'):
+def feature_weight_analysis(board_size, num_samples=100, color='white'):
     """
     For a given range ofboard sizes, this function generates several board states by
     simulating a short random game and computes the evaluation feature metrics.
@@ -322,8 +322,8 @@ def visualize_features(feature_results):
 def main():
     # Analyze board sizes from 6x6 to 18x18 (even sizes)
     board_sizes = list(range(6, 20, 2))
-    num_games = 50      # Number of games for frequency analysis
-    num_samples = 50    # Number of board samples for feature weight analysis
+    num_games = 100      # Number of games for frequency analysis
+    num_samples = 100    # Number of board samples for feature weight analysis
 
     freq_results = {}
     feature_results = {}
