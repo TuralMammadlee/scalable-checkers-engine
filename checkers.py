@@ -162,10 +162,9 @@ class Board:
                         new_visited = visited.copy() # Pass a copy down recursion
 
                         # Recursively explore further jumps from the landing square
-                        # Note: We pass the *original* captures dict to accumulate results
                         self._get_captures(piece, end_row, end_col, new_skipped, captures, new_visited)
                         
-                        #  mark that we initiated a recursive search from this path.
+                        #  mark that  initiated a recursive search from this path.
                         # The actual results (final landing spots and skips) will be added 
                         # to the 'captures' dict by the deepest successful calls in the recursion.
                         found_further_jump = True
