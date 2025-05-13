@@ -38,7 +38,7 @@ def monitor_resource_usage(stop_event, result_dict, lock):
         result_dict['memory_avg'] = memory_avg
 
 
-def measure_resources_over_games(board_sizes=[6, 8, 10, 12, 14, 16, 18], num_games=2, fixed_depth=3):
+def measure_resources_over_games(board_sizes=[6, 8, 10, 12, 14, 16, 18], num_games=10, fixed_depth=3):
     """Measure resources across different board sizes over multiple games"""
     transposition_sizes = []
     cpu_usage = []
@@ -111,8 +111,26 @@ def measure_resources_over_games(board_sizes=[6, 8, 10, 12, 14, 16, 18], num_gam
                     board.remove(skipped)
                 current_player = 'black' if current_player == 'white' else 'white'
 
+            # Count total pieces on the board
+            white_pieces = len(board.get_all_pieces('white'))
+            black_pieces = len(board.get_all_pieces('black'))
+            total_pieces = white_pieces + black_pieces
+            
+            # Calculate adaptive depth based on number of pieces
+            max_possible_pieces = board_size * (board_size//2 - 1)  # Approximate max pieces
+            piece_ratio = total_pieces / max_possible_pieces
+            
+            if piece_ratio < 0.3:  # Less than 30% of pieces remain
+                adaptive_depth = 5  # Go deeper
+            elif piece_ratio < 0.6:  # Between 30% and 60% of pieces remain
+                adaptive_depth = 4  # Medium depth
+            else:  # More than 60% of pieces remain
+                adaptive_depth = 3  # Default depth
+                
+            print(f"    Using adaptive depth: {adaptive_depth} (remaining pieces: {total_pieces})")
+
             _evaluation, _move = minimax(
-                board, fixed_depth, -float('inf'), float('inf'),
+                board, adaptive_depth, -float('inf'), float('inf'),
                 True, current_player, model
             )
             del board
@@ -145,15 +163,16 @@ def measure_resources_over_games(board_sizes=[6, 8, 10, 12, 14, 16, 18], num_gam
         'cpu_usage': cpu_usage,
         'ram_usage': ram_usage,
         'num_games': num_games,
-        'fixed_depth': fixed_depth,
-        'base_memory': base_memory  # Add base_memory to the returned data
+        'fixed_depth': 'adaptive',  # Update this to reflect adaptive depth
+        'base_memory': base_memory
     }
 
 def plot_memory_usage(data):
     """Create a memory usage chart with green bars and values at the top"""
     board_sizes = data['board_sizes']
     memory_values = data['ram_usage']  # Total memory values
-    base_memory = data['base_memory']  # Base memory from measurement, not the minimum
+    base_memory = data['base_memory']  # Base memory from measurement
+    depth_info = data['fixed_depth']  # Could be "adaptive" now
     
     # Subtract base memory to get the memory usage due to the board
     adjusted_values = [value - base_memory for value in memory_values]
@@ -170,7 +189,7 @@ def plot_memory_usage(data):
     bars = plt.bar(board_labels, adjusted_values, color='#32CD32')
     
     # Set the title and labels
-    plt.title('Memory Usage Above Base', fontsize=14)
+    plt.title(f'Memory Usage Above Base (Depth: {depth_info})', fontsize=14)
     plt.ylabel('Memory Usage (MB)', fontsize=12)
     
     # Set y-axis limits based on the actual data
@@ -207,6 +226,7 @@ def plot_transposition_table(data):
     """Create a chart showing transposition table entries for different board sizes"""
     board_sizes = data['board_sizes']
     tt_entries = data['transposition_sizes']
+    depth_info = data['fixed_depth']  # Could be "adaptive" now
     
     # Convert board sizes to string labels for x-axis
     board_labels = [f"{size}x{size}" for size in board_sizes]
@@ -220,7 +240,7 @@ def plot_transposition_table(data):
     bars = plt.bar(board_labels, tt_entries, color='#9b59b6')  # Purple
     
     # Set the title and labels
-    plt.title('Transposition Table Size', fontsize=14)
+    plt.title(f'Transposition Table Size (Depth: {depth_info})', fontsize=14)
     plt.ylabel('Number of Entries', fontsize=12)
     
     # Set y-axis limits based on data
@@ -254,11 +274,10 @@ def plot_transposition_table(data):
     plt.show()
 
 if __name__ == "__main__":
-    print("Measuring transposition table and resource usage across board sizes...")
+    print("Measuring transposition table and resource usage across board sizes with adaptive depth...")
     data = measure_resources_over_games(
         board_sizes=[6, 8, 10, 12, 14, 16, 18],
-        num_games=2,
-        fixed_depth=3
+        num_games=10
     )
     print("Plotting results...")
     plot_memory_usage(data)
