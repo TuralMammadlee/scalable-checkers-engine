@@ -53,8 +53,6 @@ def engine(board, color, model):
 def minimax_move_fn(board, color, model=None, depth=3):
     
     piece_count = board.black_left + board.white_left
-    
-    # Slightly lowered baseline depth
     if piece_count > 16:   # early game
         d = depth
     elif piece_count > 8:  # mid game
