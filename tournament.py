@@ -36,21 +36,21 @@ def engine(board, color, model):
     else:                  # late
         depth = 5
     
-    # Reduced time limit to 3 seconds
-    best = iterative_deepening(board, max_depth=depth, color=color, model=model, time_limit=3.0)
+    best = iterative_deepening(board, max_depth=depth, color=color, model=model, time_limit=4.0)
     if best:
         return (best["piece"], best["move"], best["skipped"])
     return None
 
 # ---------------------------------------------------------------------
 #  opponents:
-#    a) Minimax with shallow depth
+#    a) Minimax 
 #    b) Random
-#    c) Hybrid with shallow depth
+#    c) Hybrid 
 #    d) Aggressive
 #    e) Defensive
+#    f) Raven engine
 # ---------------------------------------------------------------------
-def minimax_move_fn(board, color, model=None, depth=2):
+def minimax_move_fn(board, color, model=None, depth=3):
     
     piece_count = board.black_left + board.white_left
     
@@ -62,7 +62,7 @@ def minimax_move_fn(board, color, model=None, depth=2):
     else:                  # end game
         d = depth + 2
     
-    # Slightly reduced time limit
+    
     time_limit = 4.0 if d <= 4 else 5.0
     best = iterative_deepening(board, max_depth=d, color=color, model=model, time_limit=time_limit)
     if best:
@@ -150,7 +150,7 @@ def hybrid_move_fn(board, color, model, depth=2):
     else:
         d = depth + 2
     
-    time_limit = 4.0 if d <= 4 else 6.0
+    time_limit = 6.0 if d <= 4 else 6.0
     best = iterative_deepening(board, max_depth=d, color=color, model=model, time_limit=time_limit)
     if best:
         return (best["piece"], best["move"], best["skipped"])
@@ -298,7 +298,7 @@ def raven_minimax(board, depth, color, alpha, beta, maximizing_player, start_tim
 def raven_move_fn(board, color, model=None, depth=4):
     """Raven's move function that uses iterative deepening with time limit"""
     start_time = time.time()
-    time_limit = 5.0  # 5 seconds per move
+    time_limit = 4.0  # 4 seconds per move
     best_move = None
     current_depth = 1
     
@@ -402,7 +402,7 @@ def simulate_game_with_stats(move_fn_white, move_fn_black, board_size=8, max_mov
                 break
                 
         if has_forced_capture:
-            # If there's a forced capture but we didn't take it, the move was invalid
+            # If there's a forced capture but  didn't take it, the move was invalid
             continue
         
         current_player = "black" if current_player == "white" else "white"
@@ -500,7 +500,7 @@ def tournament_mode():
     print("\n=== Configuration ===")
     print(f"• Board size: 8x8")
     print(f"• Number of opponents: 1 (Raven)")
-    print(f"• Games per matchup: 20 (10 each color)")
+    print(f"• Games per matchup: 200 (100 each color)")
     print("• Using iterative deepening minimax with neural network evaluation\n")
     
     # Store results for each board size
@@ -536,12 +536,12 @@ def tournament_mode():
             decisiveness_scores = []
             timeouts = 0
             
-            # Play 10 games with your AI as white
-            for game_i in range(10):
-                print(f"  Game {game_i + 1}/10 (Your AI as White): ", end="", flush=True)
+            # Play 100 games with  AI as white
+            for game_i in range(100):
+                print(f"  Game {game_i + 1}/10 ( AI as White): ", end="", flush=True)
                 
                 game_result = simulate_game_with_stats(
-                    lambda b, c: engine(b, c, resized_model),  # Your AI as white
+                    lambda b, c: engine(b, c, resized_model),  #  AI as white
                     opp_move_fn,  # Raven as black
                     board_size=size,
                     max_moves=150
@@ -568,9 +568,9 @@ def tournament_mode():
                 if game_result.get("timeout", False):
                     timeouts += 1
             
-            # Play 10 games with your AI as black
-            for game_i in range(10):
-                print(f"  Game {game_i + 1}/10 (Your AI as Black): ", end="", flush=True)
+            # Play 100 games with  AI as black
+            for game_i in range(100):
+                print(f"  Game {game_i + 1}/10 ( AI as Black): ", end="", flush=True)
                 
                 game_result = simulate_game_with_stats(
                     opp_move_fn,  # Raven as white
@@ -635,13 +635,13 @@ def tournament_mode():
 def plot_tournament_results_with_heatmap(size_results):
     """Plot tournament results with a heatmap for win rates across board sizes"""
     fig = plt.figure(figsize=(15, 10))
-    fig.suptitle("Tournament Results: Your AI vs Raven", fontsize=14)
+    fig.suptitle("Tournament Results:  AI vs Raven", fontsize=14)
     
     # 1. Win Rate Pie Chart
     ax1 = fig.add_subplot(221)
     wins = size_results[8]["Win Rate (%)"]["Raven"]
     losses = 100 - wins
-    labels = ['Your AI Wins', 'Raven Wins']
+    labels = ['Developed Engine Wins', 'Raven Wins']
     sizes = [wins, losses]
     colors = ['#5cb85c', '#d9534f']
     explode = (0.1, 0)  # explode the 1st slice
