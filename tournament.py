@@ -138,7 +138,7 @@ def defensive_move_fn(board, color, model=None):
     return None
 
 def hybrid_move_fn(board, color, model, depth=2):
-    """Stronger hybrid that combines the neural network with deeper minimax."""
+    """Stronger hybrid """
     piece_count = board.black_left + board.white_left
     
     if piece_count > 16:
@@ -337,7 +337,7 @@ def simulate_game_with_stats(move_fn_white, move_fn_black, board_size=8, max_mov
     max_no_progress = 50
     timeout = False
     start_time = time.time()
-    max_game_time = 300  # Increased to 5 minutes
+    max_game_time = 300  # 5 minutes
     
     while move_count < max_moves:
         if time.time() - start_time > max_game_time:
@@ -566,13 +566,13 @@ def tournament_mode():
                 if game_result.get("timeout", False):
                     timeouts += 1
             
-            # Play 100 games with  AI as black
+            # Play 100 games with my AI as black
             for game_i in range(100):
                 print(f"  Game {game_i + 1}/10 ( AI as Black): ", end="", flush=True)
                 
                 game_result = simulate_game_with_stats(
                     opp_move_fn,  # Raven as white
-                    lambda b, c: engine(b, c, resized_model),  # Your AI as black
+                    lambda b, c: engine(b, c, resized_model),  # my AI as black
                     board_size=size,
                     max_moves=150
                 )
