@@ -86,7 +86,6 @@ class NeuralNetworkModel:
         self.board_rows = board_rows
         self.board_cols = board_cols
         self.model = CheckersCNN(board_rows, board_cols, num_residual_blocks=num_residual_blocks)
-        # Set device to CUDA if available, otherwise CPU
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=1e-4)
@@ -278,7 +277,7 @@ class NeuralNetworkModel:
     def load_model(self, filename):
         try:
             state_dict = torch.load(filename, map_location=self.device)
-            # Use non-strict loading to accommodate architecture changes
+            #  non-strict loading to accommodate architecture changes
             missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
             self.model.eval()
             print(f"Model loaded from {filename}. Missing keys: {missing_keys}, Unexpected keys: {unexpected_keys}")
