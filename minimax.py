@@ -356,7 +356,7 @@ def order_moves(board, moves, color, model):
     center_col = board.cols / 2
 
     for move in moves:
-        heuristic_score = 0 # Renamed 'score' to 'heuristic_score'
+        heuristic_score = 0 
         piece = move.get('piece')
         dest = move.get('move')
         if piece is None or dest is None:
@@ -369,7 +369,7 @@ def order_moves(board, moves, color, model):
                     heuristic_score += 1000
                 else:
                     heuristic_score += 500
-        # Simplified capture check - heuristic only, not exact
+        
         # if board.get_piece(dest[0], dest[1]) != 0: 
         #     heuristic_score += 1000 # Potential capture (heuristic)
         if color == 'white' and dest[0] == board.rows - 1 and not piece.king:
