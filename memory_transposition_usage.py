@@ -226,7 +226,7 @@ def plot_transposition_table(data):
     """Create a chart showing transposition table entries for different board sizes"""
     board_sizes = data['board_sizes']
     tt_entries = data['transposition_sizes']
-    depth_info = data['fixed_depth']  # Could be "adaptive" now
+    depth_info = data['adaptive']  
     
     # Convert board sizes to string labels for x-axis
     board_labels = [f"{size}x{size}" for size in board_sizes]
@@ -236,7 +236,6 @@ def plot_transposition_table(data):
     ax = plt.gca()
     ax.set_facecolor('white')
     
-    # Create the bar chart with the purple color
     bars = plt.bar(board_labels, tt_entries, color='#9b59b6')  # Purple
     
     # Set the title and labels
