@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from checkers import Board
 from evaluation import get_adaptive_weights, count_moves
 
-# Increase default font size for clarity
+# Increased default font size for clarity
 plt.rcParams.update({'font.size': 12})
 
 def simulate_random_game(board_size, max_moves=150):
@@ -172,7 +172,7 @@ def compute_feature_metrics(board, color):
                 promotion_bonus += 0.05 * piece.row / (board.rows - 1)
     combined_heuristic += promotion_bonus
 
-    # Structure bonus (friendly adjacency)
+    # Structure bonus 
     structure_bonus = 0
     for piece in board.get_all_pieces(color):
         if not piece.king:
